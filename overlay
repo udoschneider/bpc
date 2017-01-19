@@ -1,11 +1,19 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import PyPDF2
 
-input = open(sys.argv[1], 'rb')
-overlay = open(sys.argv[2], 'rb')
-output = open(sys.argv[3], 'wb')
+cups_job = sys.argv[1]
+cups_user = sys.argv[2]
+cups_title = sys.argv[3]
+cups_numcopies = sys.argv[4]
+cups_options = sys.argv[5]
+cups_filename = sys.argv[6]
+output_filename = sys.argv[7]
+
+input = open(cups_filename, 'rb')
+overlay = open('/bpc/PDFs/overlay.pdf', 'rb')
+output = open(output_filename, 'wb')
 
 inputReader = PyPDF2.PdfFileReader(input)
 overlayReader = PyPDF2.PdfFileReader(overlay)
@@ -25,10 +33,3 @@ input.close()
 overlay.close()
 output.close()
 
-
-CUPS_JOB="$1"
-CUPS_USER="$2"
-CUPS_TITLE="$3"
-CUPS_NUMCOPIES="$4"
-CUPS_OPTIONS="$5"
-CUPS_FILENAME="$6"

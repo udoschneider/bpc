@@ -1,41 +1,13 @@
 #!/bin/bash -x
 
-CUPS_JOB="$1"
-CUPS_USER="$2"
-CUPS_TITLE="$3"
-CUPS_NUMCOPIES="$4"
-CUPS_OPTIONS="$5"
-CUPS_FILENAME="$6"
-
-BPC_HOME=/BPC
-BPC_OVERLAYPAGE=$BPC_HOME/overlayPage
-OVERLAY=${BPC_HOME}/overlay.pdf
 TEMPDIR=$(mktemp -d)
 
-INFILE_PS=$TEMPDIR/in.ps
-OUTFILE_PS=$TEMPDIR/out.ps
+INFILE_PDF=$TEMPDIR/in.pdf
+OUTFILE_PDF=$TEMPDIR/out.pdf
 
-INFILE_PDF=${INFILE_PS}.pdf
-OUTFILE_PDF=${OUTFILE_PS}.pdf
+pstopdf "$1" "$2" "$3" "$4" "$5" "$6" > "$INFILE_PDF"
+/bpc/overlay "$1" "$2" "$3" "$4" "$5" "$INFILE_PDF" "$OUTFILE_PDF"
+pdftops "$1" "$2" "$3" "$4" "$5" "$OUTFILE_PDF"
 
-if [ -z "$CUPS_FILENAME" ] ; then
-	cat $CUPS_FILENAME > $INFILE_PS
-else
-	cat > $INFILE_PS
-fi
-
-
-# (>&2 echo "$BPC_OVERLAYPAGE $INFILE_PDF $OVERLAY $OUTFILE_PDF")
-pstopdf "$CUPS_JOB" "$CUPS_USER" "$CUPS_TITLE" "$CUPS_NUMCOPIES" "$CUPS_OPTIONS" "$INFILE_PS" > "$INFILE_PDF"
-rc=$?; if [[ $rc != 0 ]]; then exit $rc; fi
-
-$BPC_OVERLAYPAGE $INFILE_PDF $OVERLAY $OUTFILE_PDF
-
-pdftops "$CUPS_JOB" "$CUPS_USER" "$CUPS_TITLE" "$CUPS_NUMCOPIES" "$CUPS_OPTIONS" "$OUTFILE_PDF" > "$OUTFILE_PS"
-rc=$?; if [[ $rc != 0 ]]; then exit $rc; fi
-
-cat $OUTFILE_PS
-
-# rm -rf $TEMPDIR
-
+rm -rf $TEMPDIR
 
