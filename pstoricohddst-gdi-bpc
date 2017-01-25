@@ -1,5 +1,9 @@
-#!/bin/sh
+#!/bin/sh -x
 
-bpcfilter "$1" "$2" "$3" "$4" "$5" "$6" \
-	| pstoricohddst-gdi "$1" "$2" "$3" "$4" "$5"
+TEMPDIR=$(mktemp -d)
+INFILE=${TEMPDIR}/infile.ps
+
+bpcfilter "$1" "$2" "$3" "$4" "$5" "$6" > $INFILE
+pstoricohddst-gdi "$1" "$2" "$3" "$4" "$5" "$INFILE"
+# pstoricohddst-gdi "$1" "$2" "$3" "$4" "$5" "$6"
 
