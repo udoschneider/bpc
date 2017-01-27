@@ -80,7 +80,7 @@ class MetaUploader(threading.Thread):
 
 def ps_to_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies, cups_options):
     bpc_debug("ps_to_pdf")
-    if cups_filename_or_none is not None:
+    if cups_filename_or_none is not None and len(cups_filename_or_none) > 0:
         file_in = open(cups_filename_or_none, 'rb')
     else:
         file_in = None
@@ -93,7 +93,7 @@ def ps_to_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies
 
 def ps_2_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies, cups_options):
     bpc_debug("ps_2_pdf")
-    if cups_filename_or_none is not None:
+    if cups_filename_or_none is not None and len(cups_filename_or_none) > 0:
         file_in = cups_filename_or_none
     else:
         file_in = '-'
@@ -145,6 +145,7 @@ def pdf_to_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
 
 def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     bpc_debug("pdf_2_ps")
+    bpc_debug(["/usr/bin/pdf2ps", '-', '-'])
     p = subprocess.Popen(
         args=["/usr/bin/pdf2ps", '-', '-'],
         stdin=subprocess.PIPE)
