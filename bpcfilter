@@ -83,19 +83,18 @@ class MetaUploader(threading.Thread):
             key = each["key"]
             url = urllib.parse.urljoin(C2_API_URL, each['url'])
             updated_at = datetime.datetime.fromtimestamp(each['updated_at'])
-            if file_downloader.get(url) is not None:
-                downloader = file_downloader[url]
-            else:
+            downloader = file_downloader.get(key)
+            if downloader is None:
                 downloader = FileDownloader(filename, key, url, updated_at)
                 downloader.start()
-                file_downloader[url] = downloader
+                file_downloader[key] = downloader
             self._overlays[int(each['number'])] = {'filename': filename,
+                                                   'key': key,
                                                    'url': url,
                                                    'updated_at': updated_at,
-                                                   'downloader': file_downloader[url]
-                                                   }
+                                                   'downloader': downloader}
 
-        bpc_debug("Uploaded Metadata - Done:", self._overlays)
+            bpc_debug("Uploaded Metadata - Done:", self._overlays)
 
     def upload_id(self):
         self.join()
@@ -180,28 +179,36 @@ def pdf_2_ps(bytes, cups_info):
     p.stdin.close()
 
 
-def overlay_pdf(bytes):
-    bpc_debug("Overlaying PDF")
+def overlay_pdf(bytes, overlays):
+    bpc_debug("Overlaying PDF", overlays)
+    overlay_pages = {}
+
     with io.BytesIO(bytes) as in_file:
         with io.BytesIO() as out_file:
-            with open('/bpc/PDFs/overlay.pdf', 'rb') as overlay_file:
+            in_reader = PyPDF2.PdfFileReader(in_file)
+            out_writer = PyPDF2.PdfFileWriter()
 
-                in_reader = PyPDF2.PdfFileReader(in_file)
-                overlay_reader = PyPDF2.PdfFileReader(overlay_file)
-                out_writer = PyPDF2.PdfFileWriter()
+            for page_index in range(in_reader.numPages):
+                overlay_page = None
+                overlay = overlays.get(page_index + 1)
+                bpc_debug("Got overlay", overlay)
+                if overlay is None:
+                    overlay_page = None
+                else:
+                    overlay_key = overlay['key']
+                    overlay_page = overlay_pages.get(overlay_key)
+                    if overlay_page is None:
+                        overlay_page = PyPDF2.PdfFileReader(overlay['downloader'].path()).getPage(0)
+                        overlay_pages[overlay_key] = overlay_page
 
-                overlay_page = overlay_reader.getPage(0)
+                bpc_debug("Overlay Page", page_index + 1, overlay)
+                page = in_reader.getPage(page_index)
+                if overlay_page is not None:
+                    page.mergePage(overlay_page)
+                out_writer.addPage(page)
 
-                for page_index in range(in_reader.numPages):
-                    page = in_reader.getPage(page_index)
-                    if page_index == 0:
-                        page.mergePage(overlay_page)
-                    out_writer.addPage(page)
-
-                out_writer.write(out_file)
-                result = out_file.getvalue()
-                # with open('/bpc/out_file.pdf', 'wb') as file:
-                #    file.write(result)
+            out_writer.write(out_file)
+            result = out_file.getvalue()
     bpc_debug("Overlayed PDF")
     return result
 
@@ -249,7 +256,7 @@ pdf_in_bytes = ps_2_pdf(ps_in_bytes, cups_info)
 if meta_uploader.upload_file():
     spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
 
-pdf_out_bytes = overlay_pdf(pdf_in_bytes)
+pdf_out_bytes = overlay_pdf(pdf_in_bytes, meta_uploader.overlays())
 
 # pdf_to_ps(pdf_output_data, cups_id, cups_user, cups_title, cups_copies, cups_options)
 pdf_2_ps(pdf_out_bytes, cups_info)
