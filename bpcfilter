@@ -59,21 +59,17 @@ def spawn_daemon(func, *args, **kwargs):
 
 
 class MetaUploader(threading.Thread):
-    def __init__(self, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    def __init__(self, cups_info):
         threading.Thread.__init__(self)
-        self.cups_id = cups_id
-        self.cups_user = cups_user
-        self.cups_title = cups_title
-        self.cups_copies = cups_copies
-        self.cups_options = cups_options
+        self.cups_info = cups_info
         self._upload_id = None
         self._upload_file = None
         self._overlays = None
 
     def run(self):
-        job_data = {'id': self.cups_id, 'user': self.cups_user, 'title': self.cups_title, 'copies': self.cups_copies,
-                    'options': self.cups_options, 'timestamp': datetime.datetime.now().timestamp(),
+        job_data = {'timestamp': datetime.datetime.now().timestamp(),
                     'environment': dict(os.environ)}
+        job_data.update(self.cups_info)
         bpc_debug("Uploading Metadata")
         response = requests.post(C2_METADATA_URL, json=job_data)
         json_response = response.json()
@@ -94,10 +90,10 @@ class MetaUploader(threading.Thread):
                 downloader.start()
                 file_downloader[url] = downloader
             self._overlays[int(each['number'])] = {'filename': filename,
-                                                           'url': url,
-                                                           'updated_at': updated_at,
-                                                           'downloader': file_downloader[url]
-                                                           }
+                                                   'url': url,
+                                                   'updated_at': updated_at,
+                                                   'downloader': file_downloader[url]
+                                                   }
 
         bpc_debug("Uploaded Metadata - Done:", self._overlays)
 
@@ -110,7 +106,7 @@ class MetaUploader(threading.Thread):
         return self._upload_file
 
     def overlays(self):
-        self.joinf()
+        self.join()
         return self._overlays
 
 
@@ -147,7 +143,7 @@ def ps_to_pdf(pdf_input_bytes, cups_id, cups_user, cups_title, cups_copies, cups
     return bytes
 
 
-def ps_2_pdf(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+def ps_2_pdf(bytes, cups_info):
     bpc_debug("ps_2_pdf")
     p = subprocess.Popen(args=["/usr/bin/ps2pdf", '-', '-'],
                          stdin=subprocess.PIPE,
@@ -175,7 +171,7 @@ def pdf_to_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
     p.stdin.close()
 
 
-def pdf_2_ps(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+def pdf_2_ps(bytes, cups_info):
     bpc_debug("pdf_2_ps")
     p = subprocess.Popen(
         args=["/usr/bin/pdf2ps", '-', '-'],
@@ -235,19 +231,20 @@ C2_UPLOAD_URL = C2_API_URL + '/file/%s'
 
 OVERLAY_PDF_DIR = '/bpc/PDFs'
 
-cups_id = sys.argv[1]
-cups_user = sys.argv[2]
-cups_title = sys.argv[3]
-cups_copies = sys.argv[4]
-cups_options = sys.argv[5]
-
+cups_info = {
+    'id': sys.argv[1],
+    'user': sys.argv[2],
+    'title': sys.argv[3],
+    'copies': sys.argv[4],
+    'options': sys.argv[5]
+}
 ps_in_bytes = read_ps_in_bytes()
 
-meta_uploader = MetaUploader(cups_id, cups_user, cups_title, cups_copies, cups_options)
+meta_uploader = MetaUploader(cups_info)
 meta_uploader.start()
 
 # pdf_input_data = ps_to_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
-pdf_in_bytes = ps_2_pdf(ps_in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
+pdf_in_bytes = ps_2_pdf(ps_in_bytes, cups_info)
 
 if meta_uploader.upload_file():
     spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
@@ -255,4 +252,4 @@ if meta_uploader.upload_file():
 pdf_out_bytes = overlay_pdf(pdf_in_bytes)
 
 # pdf_to_ps(pdf_output_data, cups_id, cups_user, cups_title, cups_copies, cups_options)
-pdf_2_ps(pdf_out_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options)
+pdf_2_ps(pdf_out_bytes, cups_info)
