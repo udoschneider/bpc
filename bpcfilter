@@ -36,7 +36,7 @@ def bpc_dump(bytes, name):
     if DEBUG:
         with tempfile.NamedTemporaryFile(prefix="cups_%s_" % cups_info['id'], suffix="_%s" % name,
                                          delete=False) as file:
-            bpc_debug("Tempfile", name, file.name)
+            bpc_debug("Tempfile name=", name, 'path=', file.name, 'size=', len(bytes), 'bytes')
             file.write(bytes)
 
 
