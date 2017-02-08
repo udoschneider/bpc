@@ -265,7 +265,7 @@ def upload_bytes(bytes, upload_id, filename, mimetype):
 C2_API_URL = 'http://c2:8080/bpc/api-v1'
 C2_METADATA_URL = C2_API_URL + '/metadata'
 C2_UPLOAD_URL = C2_API_URL + '/file/%s'
-OVERLAY_PDF_DIR = '/bpc/PDFs'
+OVERLAY_PDF_DIR = '/bpc/overlays-cache'
 
 cups_info = {
     'id': sys.argv[1],
