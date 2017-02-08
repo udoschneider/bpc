@@ -17,6 +17,9 @@ import io
 import os
 import urllib
 import dateutil.parser
+import tempfile
+
+DEBUG = True
 
 
 def eprint(*args, **kwargs):
@@ -24,8 +27,17 @@ def eprint(*args, **kwargs):
 
 
 def bpc_debug(*args, **kwargs):
-    eprint("DEBUG: (BPC)", *args, **kwargs)
-    # eprint("DEBUG: (BPC)", threading.get_ident(), *args, **kwargs)
+    if DEBUG:
+        eprint("DEBUG: (BPC)", *args, **kwargs)
+        # eprint("DEBUG: (BPC)", threading.get_ident(), *args, **kwargs)
+
+
+def bpc_dump(bytes, name):
+    if DEBUG:
+        with tempfile.NamedTemporaryFile(prefix="cups_%s_" % cups_info['id'], suffix="_%s" % name,
+                                         delete=False) as file:
+            bpc_debug("Tempfile", name, file.name)
+            file.write(bytes)
 
 
 def spawn_daemon(func, *args, **kwargs):
@@ -289,9 +301,13 @@ meta_uploader = MetaUploader(cups_info)
 meta_uploader.start()
 
 ps_in_bytes = read_ps_in_bytes()
+bpc_dump(ps_in_bytes, 'in.ps')
 pdf_in_bytes = convert_postscript_to_pdf(ps_in_bytes, cups_info)
+bpc_dump(pdf_in_bytes, 'in.pdf')
 if meta_uploader.upload_file():
     spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
 pdf_out_bytes = overlay_pdf(pdf_in_bytes, meta_uploader.overlays())
+bpc_dump(pdf_out_bytes, 'out.pdf')
 ps_out_bytes = convert_pdf_to_postscript(pdf_out_bytes, cups_info)
+bpc_dump(ps_out_bytes, 'out.ps')
 write_ps_out_bytes(ps_out_bytes)
