@@ -20,6 +20,7 @@ import dateutil.parser
 import tempfile
 
 DEBUG = True
+DUMP_FILES = True
 
 
 def eprint(*args, **kwargs):
@@ -33,7 +34,7 @@ def bpc_debug(*args, **kwargs):
 
 
 def bpc_dump(bytes, name):
-    if DEBUG:
+    if DUMP_FILES:
         with tempfile.NamedTemporaryFile(prefix="cups_%s_" % cups_info['id'], suffix="_%s" % name,
                                          delete=False) as file:
             bpc_debug("Tempfile name=", name, 'path=', file.name, 'size=', len(bytes), 'bytes')
