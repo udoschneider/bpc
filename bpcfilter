@@ -160,30 +160,30 @@ class FileDownloader(threading.Thread):
         return self._path
 
 
-def convert_postscript_to_pdf(bytes, cups_info):
-    return pstopdf(bytes, cups_info)
-    # return ps2pdf(bytes)
+def postscript_to_pdf(bytes, cups_info, version=''):
+    # return cups_pstopdf(bytes, cups_info)
+    return gs_ps2pdf(bytes, version)
 
 
-def pstopdf(in_bytes, cups_info):
-    bpc_debug("ps_to_pdf started in=", len(in_bytes), "bytes")
+def cups_pstopdf(in_bytes, cups_info):
+    bpc_debug("cups_pstopdf started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/lib/cups/filter/pstopdf", cups_info['id'], cups_info['user'], cups_info['title'],
               cups_info['copies'], cups_info['options']],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    bpc_debug("ps_to_pdf ended out=", len(out_bytes), "bytes")
+    bpc_debug("cups_pstopdf ended out=", len(out_bytes), "bytes")
     return out_bytes
 
 
-def ps2pdf(in_bytes):
-    bpc_debug("ps_2_pdf started in=", len(in_bytes), "bytes")
-    p = subprocess.Popen(args=["/usr/bin/ps2pdf", '-', '-'],
+def gs_ps2pdf(in_bytes, version=''):
+    bpc_debug("gs_ps2pdf started version=", version, "in=", len(in_bytes), "bytes")
+    p = subprocess.Popen(args=["/usr/bin/ps2pdf" + version, '-', '-'],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    bpc_debug("ps_2_pdf ended out=", len(out_bytes), "bytes")
+    bpc_debug("gs_ps2pdf ended version=", version, "out=", len(out_bytes), "bytes")
     return out_bytes
 
 
@@ -199,44 +199,60 @@ def ps2ascii(in_bytes):
     return out_bytes
 
 
-def convert_pdf_to_postscript(bytes, cups_info):
-    return pdf_to_ps(bytes, cups_info)
-    # return pdf2ps(bytes)
+def pdf_to_postscript(bytes, cups_info):
+    # return cups_pdftops(bytes, cups_info)
+    return poppler_pdf2ps(bytes, 'level2')
+    # return gs_pdf2ps(bytes)
 
 
-def pdf_to_ps(in_bytes, cups_info):
-    bpc_debug("pdf_to_ps started in=", len(in_bytes), "bytes")
+def cups_pdftops(in_bytes, cups_info):
+    bpc_debug("cups_pdftops started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/lib/cups/filter/pdftops", cups_info['id'], cups_info['user'], cups_info['title'],
               cups_info['copies'], cups_info['options']],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    bpc_debug("pdf_to_ps ended out=", len(out_bytes), "bytes")
+    bpc_debug("cups_pdftops ended out=", len(out_bytes), "bytes")
     return out_bytes
 
 
-def pdf2ps(in_bytes):
-    bpc_debug("pdf_2_ps started in=", len(in_bytes), "bytes")
+def gs_pdf2ps(in_bytes):
+    bpc_debug("gs_pdf2ps started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/bin/pdf2ps", '-', '-'],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE)
     out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    bpc_debug("pdf_2_ps ended out=", len(out_bytes), "bytes")
+    bpc_debug("gs_pdf2ps ended out=", len(out_bytes), "bytes")
     return out_bytes
 
-def ps_to_ps(in_bytes, cups_info):
-    bpc_debug("ps_to_ps started in=", len(in_bytes), "bytes")
+
+def poppler_pdf2ps(in_bytes, level='level1'):
+    level_option = "-%s" % level
+    bpc_debug("poppler_pdf2ps started level=", level, "in=", len(in_bytes), "bytes")
+    p = subprocess.Popen(
+        args=["/usr/bin/pdftops", level_option, '-', '-'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE)
+    out_bytes = p.communicate(input=in_bytes)[0]
+    p.stdin.close()
+    bpc_debug("poppler_pdf2ps ended level=", level, "out=", len(out_bytes), "bytes")
+    return out_bytes
+
+
+def cups_pstops(in_bytes, cups_info):
+    bpc_debug("cups_pstops started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/lib/cups/filter/pstops", cups_info['id'], cups_info['user'], cups_info['title'],
               cups_info['copies'], cups_info['options']],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     out_bytes = p.communicate(input=in_bytes)[0]
     p.stdin.close()
-    bpc_debug("ps_to_ps ended out=", len(out_bytes), "bytes")
+    bpc_debug("cups_pstops ended out=", len(out_bytes), "bytes")
     return out_bytes
+
 
 def overlay_pdf(in_bytes, overlays):
     bpc_debug("overlay_pdf started in=", len(in_bytes), "overlays=", overlays)
@@ -315,14 +331,20 @@ meta_uploader.start()
 
 ps_in_bytes = read_ps_in_bytes()
 bpc_dump(ps_in_bytes, 'in.ps')
-pdf_in_bytes = convert_postscript_to_pdf(ps_in_bytes, cups_info)
+
+pdf_in_bytes = postscript_to_pdf(ps_in_bytes, cups_info, '12')
 bpc_dump(pdf_in_bytes, 'in.pdf')
+
 if meta_uploader.upload_file():
     spawn_daemon(upload_bytes, pdf_in_bytes, meta_uploader.upload_id(), 'print.pdf', 'application/pdf')
+
 pdf_out_bytes = overlay_pdf(pdf_in_bytes, meta_uploader.overlays())
 bpc_dump(pdf_out_bytes, 'out.pdf')
-ps_out_bytes = convert_pdf_to_postscript(pdf_out_bytes, cups_info)
+
+ps_out_bytes = pdf_to_postscript(pdf_out_bytes, cups_info)
 bpc_dump(ps_out_bytes, 'out.ps')
-ps_out_bytes = ps_to_ps(ps_out_bytes, cups_info)
+
+ps_out_bytes = cups_pstops(ps_out_bytes, cups_info)
 bpc_dump(ps_out_bytes, 'out_ps.ps')
+
 write_ps_out_bytes(ps_out_bytes)
