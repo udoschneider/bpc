@@ -20,7 +20,7 @@ import dateutil.parser
 import tempfile
 
 DEBUG = True
-DUMP_FILES = True
+DUMP_FILES = False
 
 
 def eprint(*args, **kwargs):
