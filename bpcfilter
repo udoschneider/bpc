@@ -160,21 +160,25 @@ class FileDownloader(threading.Thread):
         return self._path
 
 
+def cups_filter(name, in_bytes, cups_info):
+    bpc_debug("cups_%s started in=" % name, len(in_bytes), "bytes")
+    p = subprocess.Popen(
+        args=["/usr/lib/cups/filter/%s" % name, cups_info['id'], cups_info['user'], cups_info['title'],
+              cups_info['copies'], cups_info['options']],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    out_bytes = p.communicate(input=in_bytes)[0]
+    p.stdin.close()
+    bpc_debug("cups_%s ended out=" % name, len(out_bytes), "bytes")
+    return out_bytes
+
+
 def postscript_to_pdf(bytes, cups_info, version=''):
     # return cups_pstopdf(bytes, cups_info)
     return gs_ps2pdf(bytes, version)
 
 
 def cups_pstopdf(in_bytes, cups_info):
-    bpc_debug("cups_pstopdf started in=", len(in_bytes), "bytes")
-    p = subprocess.Popen(
-        args=["/usr/lib/cups/filter/pstopdf", cups_info['id'], cups_info['user'], cups_info['title'],
-              cups_info['copies'], cups_info['options']],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    out_bytes = p.communicate(input=in_bytes)[0]
-    p.stdin.close()
-    bpc_debug("cups_pstopdf ended out=", len(out_bytes), "bytes")
-    return out_bytes
+    return cups_filter("pstopdf", in_bytes, cups_info)
 
 
 def gs_ps2pdf(in_bytes, version=''):
@@ -206,15 +210,7 @@ def pdf_to_postscript(bytes, cups_info):
 
 
 def cups_pdftops(in_bytes, cups_info):
-    bpc_debug("cups_pdftops started in=", len(in_bytes), "bytes")
-    p = subprocess.Popen(
-        args=["/usr/lib/cups/filter/pdftops", cups_info['id'], cups_info['user'], cups_info['title'],
-              cups_info['copies'], cups_info['options']],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    out_bytes = p.communicate(input=in_bytes)[0]
-    p.stdin.close()
-    bpc_debug("cups_pdftops ended out=", len(out_bytes), "bytes")
-    return out_bytes
+    return cups_filter("pdftops", in_bytes, cups_info)
 
 
 def gs_pdf2ps(in_bytes):
@@ -243,15 +239,7 @@ def poppler_pdf2ps(in_bytes, level='level1'):
 
 
 def cups_pstops(in_bytes, cups_info):
-    bpc_debug("cups_pstops started in=", len(in_bytes), "bytes")
-    p = subprocess.Popen(
-        args=["/usr/lib/cups/filter/pstops", cups_info['id'], cups_info['user'], cups_info['title'],
-              cups_info['copies'], cups_info['options']],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    out_bytes = p.communicate(input=in_bytes)[0]
-    p.stdin.close()
-    bpc_debug("cups_pstops ended out=", len(out_bytes), "bytes")
-    return out_bytes
+    return cups_filter("pstops", in_bytes, cups_info)
 
 
 def overlay_pdf(in_bytes, overlays):
