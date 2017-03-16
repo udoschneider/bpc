@@ -20,7 +20,7 @@ import dateutil.parser
 import tempfile
 
 DEBUG = True
-DUMP_FILES = False
+DUMP_FILES = True
 
 
 def eprint(*args, **kwargs):
@@ -191,7 +191,7 @@ def gs_ps2pdf(in_bytes, version=''):
     return out_bytes
 
 
-def ps2ascii(in_bytes):
+def gs_ps2ascii(in_bytes):
     bpc_debug("ps_2_ascii started in=", len(in_bytes), "bytes")
     p = subprocess.Popen(
         args=["/usr/bin/ps2ascii", '-', '-'],
@@ -301,7 +301,7 @@ def upload_bytes(bytes, upload_id, filename, mimetype):
     bpc_debug("upload_bytes ended response=", response)
 
 
-C2_API_URL = 'http://c2:8080/bpc/api-v1'
+C2_API_URL = 'http://127.0.0.1:8080/bpc/api-v1'
 C2_METADATA_URL = C2_API_URL + '/metadata'
 C2_UPLOAD_URL = C2_API_URL + '/file/%s'
 OVERLAY_PDF_DIR = '/bpc/overlays-cache'
