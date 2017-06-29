@@ -1,8 +1,0 @@
-#!/bin/sh -x
-
-TEMPDIR=$(mktemp -d)
-INFILE=${TEMPDIR}/infile.ps
-
-/usr/lib/cups/filter/bpcfilter "$1" "$2" "$3" "$4" "$5" "$6" | /usr/lib/cups/filter/pstoricohddst-gdi "$1" "$2" "$3" "$4" "$5" 
-# pstoricohddst-gdi "$1" "$2" "$3" "$4" "$5" "$6"
-
